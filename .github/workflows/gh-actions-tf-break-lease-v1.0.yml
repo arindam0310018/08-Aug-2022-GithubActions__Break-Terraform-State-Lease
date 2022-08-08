@@ -1,0 +1,78 @@
+name: 'Break Terraform Lease'
+
+on: [workflow_dispatch]
+
+env:
+  SUBSCRIPTIONID: '210e66cb-55cf-424e-8daa-6cad804ab604' 
+  RGNAME: 'tfpipeline-rg'
+  STORAGEACCOUNTNAME: 'tfpipelinesa'
+  STORAGEACCOUNTCONTAINERNAME: 'terraform'
+  TFSTATEFILENAME: 'TF-LEASE/BreakLease.tfstate'
+   
+   
+jobs:
+
+  build-and-deploy:
+    runs-on: windows-latest
+    environment: dev
+    steps:
+
+    - name: 'Azure CLI Login'
+      uses: azure/login@v1
+      with:
+        creds: '${{ secrets.AZURE_CREDENTIALS }}'
+
+    - name: 'Break TF State'
+      run: |
+          az --version
+          az account set --subscription ${{ env.SUBSCRIPTIONID }}
+          az account show  
+          $i = az group exists -n ${{ env.RGNAME }}
+            if ($i -eq "true") {
+              echo "#####################################################"
+              echo "Resource Group ${{ env.RGNAME }} exists!!!"
+              echo "#####################################################"
+              $j = az storage account check-name --name ${{ env.STORAGEACCOUNTNAME }} --query "reason" --out tsv
+                if ($j -eq "AlreadyExists") {
+                  echo "#####################################################"
+                  echo "Storage Account ${{ env.STORAGEACCOUNTNAME }} exists!!!"
+                  echo "#####################################################"  
+                  $k = az storage container exists --account-name ${{ env.STORAGEACCOUNTNAME }} --account-key $(az storage account keys list -g ${{ env.RGNAME }} -n ${{ env.STORAGEACCOUNTNAME }} --query [0].value -o tsv) --name ${{ env.STORAGEACCOUNTCONTAINERNAME }} --query "exists" --out tsv 
+                    if ($k -eq "true") {
+                      echo "#####################################################"
+                      echo "Storage Account Container ${{ env.STORAGEACCOUNTCONTAINERNAME }} exists!!!"
+                      echo "#####################################################"  
+                      $l = az storage blob exists --account-name ${{ env.STORAGEACCOUNTNAME }} --account-key $(az storage account keys list -g ${{ env.RGNAME }} -n ${{ env.STORAGEACCOUNTNAME }} --query [0].value -o tsv) --container-name ${{ env.STORAGEACCOUNTCONTAINERNAME }} --name ${{ env.TFSTATEFILENAME }} --query "exists" --out tsv  
+                        if ($l -eq "true") {
+                          echo "#####################################################"
+                          echo "Terraform State Blob ${{ env.TFSTATEFILENAME }} exists!!!"
+                          echo "#####################################################"
+                          az storage blob lease break --account-name ${{ env.STORAGEACCOUNTNAME }} --account-key $(az storage account keys list -g ${{ env.RGNAME }} -n ${{ env.STORAGEACCOUNTNAME }} --query [0].value -o tsv) --container-name ${{ env.STORAGEACCOUNTCONTAINERNAME }} --blob-name ${{ env.TFSTATEFILENAME }}                           
+                          }
+                        else {
+                          echo "#####################################################"
+                          echo "Terraform State Blob ${{ env.TFSTATEFILENAME }} DOES NOT EXISTS in ${{ env.STORAGEACCOUNTCONTAINERNAME }}"
+                          echo "#####################################################"
+                          exit 1
+                          }
+                    }
+                    else {
+                      echo "#####################################################"
+                      echo "Storage Account Container ${{ env.STORAGEACCOUNTCONTAINERNAME }} DOES NOT EXISTS in STORAGE ACCOUNT ${{ env.STORAGEACCOUNTNAME }}!!!"
+                      echo "#####################################################"
+                      exit 1
+                    }
+                }
+                else {
+                  echo "#####################################################"
+                  echo "Storage Account ${{ env.STORAGEACCOUNTNAME }} DOES NOT EXISTS!!!"
+                  echo "#####################################################"
+                  exit 1
+                }              
+            }
+            else {
+              echo "#####################################################"
+              echo "Resource Group ${{ env.RGNAME }} DOES NOT EXISTS!!!"
+              echo "#####################################################"
+              exit 1
+            }
